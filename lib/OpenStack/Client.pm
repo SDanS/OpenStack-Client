@@ -323,6 +323,10 @@ C<add>, C<replace>, or C<delete>.
         'body'    => \@image_updates
     );
 
+=head1 TODO:
+
+E<0x2610> Improve call to detect a passed coderef and pass along to request() for ultimate flexibility.
+
 =cut
 
 sub call {
