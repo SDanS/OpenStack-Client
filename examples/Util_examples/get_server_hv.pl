@@ -10,7 +10,7 @@ use YAML::Tiny;
 
 use Data::Dumper;
 
-use OpenStack::Utils;
+use OpenStack::Client::Utils;
 
 exit(main(@ARGV)) unless caller;
 
@@ -55,12 +55,12 @@ The main logic of the script.
 sub main {
     my $opts = fetch_request_data();
     $opts->{'auth'} = fetch_auth_data();
-    my ($response, $os_util) = OpenStack::Utils->new($opts);
+    my ($response, $os_util) = OpenStack::Client::Utils->new($opts);
     print Dumper $response;
 }
 
 sub fetch_request_data {
-    my $opts_yaml = YAML::Tiny->read('./os_opts.yml');
+    my $opts_yaml = YAML::Tiny->read('/Users/dan/os_opts.yml');
     my $opts = $opts_yaml->[0];
     return $opts;
 }
