@@ -5,8 +5,8 @@ use warnings;
 use JSON;
 use Data::UUID;
 use OpenStack::Client::Auth;
+use Scalar::Util;
 
-use Data::Dumper;
 
 =pod 
 
@@ -182,11 +182,10 @@ sub request {
     my $filter = shift;
     $req = $self->build_request($req) if $req;
     $req->{'handler'} = sub {
-      my ( $res, $ref, $wut ) = @_;
-      $Data::Dumper::Maxdepth = 1;
-      print Dumper $res;
-      print Dumper $ref;
-      print Dumper $wut;
+      foreach my $arg (@_) {
+        print Scalar::Util::blessed($arg) if Scalar::Util::blessed($arg);
+        print "\n";
+      }
     };
     my $response = $self->{'os_cli'}->call($req);
     return $response;
@@ -328,11 +327,6 @@ sub handle_response {
     my $res         = shift;
     my $response_ref = shift;
     ## my $filter_aref = shift;
-    # print Dumper $filter_aref;
-    print "I'M YOUR RESPONSE CHUNK!";
-    print Dumper $res;
-    print "I'M YOUR RESPONSE REF!";
-    print Dumper $response_ref;
 };
 
 1;

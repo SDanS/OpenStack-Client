@@ -56,7 +56,6 @@ sub main {
     my $opts = fetch_request_data();
     $opts->{'auth'} = fetch_auth_data();
     my ($response, $os_util) = OpenStack::Client::Utils->new($opts);
-    print Dumper $response;
 }
 
 sub fetch_request_data {
