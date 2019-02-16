@@ -267,11 +267,13 @@ subroutine returns an empty string or undef.
 
 =item C<handler> - Response body handler function
 
-When specified, this function will be called with two arguments; the first
-argument is a scalar value containing a chunk of data in the response body, and
+When specified, this function will be called with 3 arguments; the first
+argument is a scalar value containing a chunk of data in the response body,
 the second is a scalar reference to a L<HTTP::Response> object representing the
-current response.  This is useful for retrieving very large resources without
-having to store the entire response body in memory at once for parsing.
+current response, and the third is a reference to the User Agent or it's base 
+class in which it will be referenced.  This is useful for retrieving very large
+resources without having to store the entire response body in memory at once for
+parsing.
 
 =back
 
@@ -322,12 +324,6 @@ C<add>, C<replace>, or C<delete>.
         'path'    => qq[/v2/images/$image->{id}],
         'body'    => \@image_updates
     );
-
-=head1 TODO:
-
-E<0x2610> Improve call to detect a passed coderef and pass along to request() for ultimate flexibility.
-
-=cut
 
 sub call {
     my $self = shift;
