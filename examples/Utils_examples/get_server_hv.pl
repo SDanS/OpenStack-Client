@@ -9,8 +9,6 @@ use JSON;
 use YAML::Tiny;
 use FindBin;
 
-use Data::Dumper;
-
 use lib qq{$FindBin::Bin/subclass-libs/};
 
 use Intercept;

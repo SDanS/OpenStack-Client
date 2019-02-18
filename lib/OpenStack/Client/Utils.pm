@@ -7,8 +7,6 @@ use Data::UUID;
 use OpenStack::Client::Auth;
 use Scalar::Util;
 
-use Data::Dumper;
-
 use strict;
 use warnings;
 

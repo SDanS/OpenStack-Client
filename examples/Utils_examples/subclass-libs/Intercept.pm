@@ -6,8 +6,6 @@ use Data::UUID;
 use strict;
 use warnings;
 
-use Data::Dumper;
-
 =pod
 
 =head1 Name: B<OpenStack::Client::Utils::Intercept;

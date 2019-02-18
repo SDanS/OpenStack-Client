@@ -10,7 +10,6 @@ package OpenStack::Client::Auth::v3;
 
 use strict;
 use warnings;
-use Data::Dumper;
 
 use OpenStack::Client ();
 
