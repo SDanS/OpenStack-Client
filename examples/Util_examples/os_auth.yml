@@ -1,9 +1,0 @@
----
-password: "i'manadmin!"
-scope:
-  project:
-    domain:
-      name: default
-    name: admin
-tenant: admin
-username: admin

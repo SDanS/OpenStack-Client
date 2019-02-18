@@ -1,5 +1,22 @@
 OpenStack::Client Changes
 
+Version 1.003
+
+    * Added the Utils library for simple collections of request 
+      which utilize token authentication. One passwd auth and done.
+
+    * Added examples of subclassing and overrides for Utils library.
+
+    * Adjusted OpenStack::Client::Auth::v3 so that it allows a complete
+      auth object as an argument and doesn't complain about not having
+      a service catalog in the token object after an uncoped auth.
+    
+    * Utils library allows passing scope auth object with request objects for
+      easily creating collections of requests.
+
+    * Provided poc yaml request storage in examples/Utils_examples/
+      yaml_dumper.pl.
+
 Version 1.0002
 
     * Added custom header support in $client->call()
