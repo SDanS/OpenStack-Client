@@ -7,6 +7,8 @@ use Data::UUID;
 use OpenStack::Client::Auth;
 use Scalar::Util;
 
+use Data::Dumper;
+
 use strict;
 use warnings;
 
@@ -56,7 +58,7 @@ If you're only making a single request, pass the scope object that is required.
 
     my $auth = {
         'auth_endpoint' => 'https://bigreddog.namedclifford.com:5001/',
-        'auth_request_body' => {
+        'request_body' => {
             'auth => {
                 'identity' => {
                     'methods' => [ 'password' ],
@@ -108,7 +110,7 @@ E<10>
 
     # If you didn't set your scope at object instantiation with the authentication object:
 
-    $request->{'auth_request_body'}{'auth'}{'scope'} = {
+    $request->{'auth'}->{'scope'} = {
         'project' => {
             'name'   => 'someproject',
             'domain' => { 'name' => 'default' },
@@ -131,7 +133,7 @@ E<10>
 
     my $request = { . . . };
 
-    $request->{'auth_requet_body'}{'auth'}{'scope'} = {
+    $request->{'auth'}->{'scope'} = {
         'project' => {
             'domain' => {
                 'name' => "default",
@@ -142,7 +144,7 @@ E<10>
 
 =item B<OR>
 
-    $request->{'auth_request_body'}{'auth'}{'scope'} = {
+    $request->{'auth'}->{'scope'} = {
         'system' => { 
             "all" => 'true' 
         },
@@ -151,7 +153,7 @@ E<10>
 =item $request object can store data for processing the response.
 
 Since it's passed to the response handler, you can add arbitrary keys and
-values to the request for handling responses in a subclass. See examples/Util_examples/
+values to the request for handling in a subclass. See examples/Util_examples/
 subclass_libs/Intercept.pm. Complex handling and filtering can be performed on 
 collections of responses using this technique.
 
@@ -164,10 +166,11 @@ See example/Utils_example/subclass_libs/Intercept.pm and the corresponding get_s
 
 sub new {
     my $class = shift;
-    my $auth  = shift;
+    my %auth  = @_;
     my $self  = {};
     bless $self, $class;
-    $self->set_auth($auth);
+    ### Set scope for first request.
+    $self->set_auth(%auth);
     return $self;
 }
 
@@ -181,9 +184,50 @@ sub new {
 
 =item B<Description:>
 
-Authenticates and returns the client specified in the $opts->{'service'}
-argument hash and available in the $auth->{'tokens'}->{'catalog'}
-returned from the authentication call.
+Authenticates and sets $self->{'auth'} to the returned authentication object 
+making C<$os_util-<gt>set_service_client> and $self->{'auth'}->token()
+available.
+
+=head3 Arguments:
+
+=item auth_endpoint B<REQUIRED>
+
+=item version (defaults to 3)
+
+=item A full auth request object at C<%auth{'auth_request_body'}>
+
+Such an object can be constructed using set_auth_request_identity and 
+set_auth_request_scope. Or one can be crafted externally.
+
+    (
+        'auth_endpoint' => <endpoint>,
+        'auth_version'  => 3<default>|2,
+        'auth_request_body' => {
+            'auth' => {
+                'identity' => {
+                    ...
+                },
+                'scope' => {
+                    ...
+                }
+            }
+        }
+    )
+
+=item username, password, and domain.
+
+You can pass this combination. Domain is set to default if not specified.
+
+    (
+        'username' => <username>,
+        'password' => <password>,
+        'domain'    => <domain>
+    )
+
+=item user_id, password
+
+You get the gist.
+
 
 =back
 
@@ -191,31 +235,49 @@ returned from the authentication call.
 
 sub set_auth {
     my $self = shift;
-    my $auth = shift;
-    $auth = $self->auth_overrides($auth);
-    $auth->{'version'} //= 3;
-    my $endpoint = $auth->{'endpoint'} . "v" . $auth->{'version'};
+    my %auth = @_;
     my $auth_args;
-    if ( ref $auth->{'auth_request_body'} eq "HASH" ) {
-        $auth_args = { 
-            'request' => { %{ $auth->{'auth_request_body'} } }
-        };
-    } 
-    else  {
-        $auth_args = {
-            'tenant'  => $auth->{'tenant'},
-            'password' => $auth->{'password'},
-            'username' => $auth->{'username'},
-            'scope'    => $auth->{'scope'},
-            'version'  => $auth->{'version'}
-        };
+    %auth = $self->auth_overrides(%auth);
+    if ( exists $auth{'auth_request_body'} ) {
+        $auth_args->{'request'} = %{ $auth{'auth_request_body'} };
     }
-    $self->{'auth'} = OpenStack::Client::Auth->new(
-        $endpoint,
-        %$auth_args,
-        'version' => $auth->{'version'}
-    );
-    return $self;
+    else {
+        my $scope = $auth{'scope'};
+        ( $scope, undef ) = $self->set_auth_request_scope($scope);
+        my $version = defined $auth{'version'} ? $auth{'version'} : '3';
+        die "auth_endpoint must be defined for authentication to be successful.\n" if !defined $auth{'auth_endpoint'};
+        my $endpoint = $auth{'auth_endpoint'} . "v" . $auth{'auth_version'};
+        if ( defined $auth{'token'} ) {
+            $auth_args->{'token'} = $auth{'token'};
+        }
+        elsif ( exists $auth{'password'} && defined $auth{'password'} ) {
+            $auth_args->{'password'} = $auth{'password'};
+            ### sub may_need_domain()
+            if ( $auth{'username'} ) {
+                $auth_args->{'username'} = $auth{'username'};                
+                for my $key ( %auth ) {
+                    my ( $type ) = $key =~ /\bdomain(.*)\b/;
+                    $auth_args->{"domain" . $type} = $auth{"domain" . $type};
+                    last if $type;
+                }
+
+            }
+            elsif ( defined $auth{'userid'} ) {
+                $auth_args->{'userid'} = $auth{'userid'};
+            }
+        }
+        else {
+            $auth_args->{'token'} = $self->{'auth'}->token() or die "Cannot find an authentication method.\n";
+        }
+
+        $auth_args->{'scope'}   = $scope if defined $scope;
+        $auth_args->{'version'} = $version;
+        $self->{'auth'}         = OpenStack::Client::Auth->new(
+            $endpoint,
+            %$auth_args,
+        );
+        return $self;
+    }
 }
 
 =head2 Name: B<request>
@@ -224,19 +286,9 @@ sub set_auth {
 
 =item B<Description>
 
-tl;dr C<$request->{'auth_request_body'}->{'scope'}> should only be passed with intention.
-
 =over 2
 
 Send the request using OpenStack::Client::call().
-
-If an authentication scope object is sent with the request. A scope change
-will be attempted (reauthentication) with the existing token if it exists.
-
-If there is not an existing token, an authenticatoin object should be passed
-with the password authentication method or a token provided outside of this
-utility library. Outside of object instantiation, this need shouldn't arise.
-but that possibility is addressed in C<set_scope()>.
 
 Selects the appropriate OpenStack::Client using set_service_client.
 
@@ -259,15 +311,6 @@ See example/Utils_example/subclass_libs/Intercept.pm and the corresponding get_s
     'service' => 'compute',
     'method' => 'GET',
     'path' => '/servers/detail',
-    # Auth scope required for the request.
-    'auth' => {
-        'scope' => { 
-            'project' => {
-                'name'   => 'someproject',
-                'domain' => { 'name' => 'default' },
-            },
-        },
-    },
     'body' => { 
         '<body details>'
     },
@@ -281,13 +324,7 @@ See example/Utils_example/subclass_libs/Intercept.pm and the corresponding get_s
 sub request {
     my $self    = shift;
     my $request = shift;
-    my $new_auth->{'auth_request_body'} = $request->{'auth_request_body'};
-    $request = $self->request_overrides($request);
-
-    # initial request or if scope changes for new request.
-    if ( $new_auth->{'auth_request_body'}{'auth'}{'scope'} ) {
-        $self->set_scope($new_auth);
-    }
+    $request = $self->request_override($request);
     $self->set_service_client( $request->{'service'} );
     my $response = $self->{'service_client'}->call($request);
     $response = $self->handle_response( $response, $request );
@@ -311,9 +348,98 @@ sub set_service_client {
     return $self;
 }
 
+=head2 Name: set_auth_identity
+
+=head3 Usage: C<$os_util-<gt>set_auth_identity(\%args,$auth)>
+
+=head3 Arguments:
+
+Arguments should take one of the following forms:
+
+{
+    'auth_endpoint' => '<identity service endpoint'>,
+    'auth_version'  => '3<default>|2'
+}
+=item Password authentication:
+
+    {
+        'username' => '<openstack login>',
+        'userid'   => '<user id>'
+        'password' => '<OpenStack password>',
+        # Defaults to 'default'.
+
+=item Domain is necessary when using username instead userid. 
+
+        'domain_name => '<domain name>',
+
+            B<OR>
+
+        'domain_id'  => '<domain id> | default',
+    }
+
+=item Token authentication:
+
+A token can be provided. If not provided and a successful authentication has
+already occurred for the active user, it will be retrieved from the auth object.
+
+    { 'token_id' => '<token_id>' | $self->{'auth'}->token() }
+
+=item Description:
+
+Convenience method to build the auth request body. This only creates the body
+with the identity portion. For the scope portion see C<set_scope()>.
+
+=cut
+
+sub set_auth_request_identity {
+    my $self = shift;
+    my $args = shift;
+    my $auth = shift;
+    foreach ( $args, $auth ) {
+        given ($args) { }
+        if ( !defined $args{'password'} || !defined $args{'username'} ) {
+            if ( !defined $args{'token'} ) {
+                if ( !$self->{'auth'}->token() ) {
+                    die "No password/username combination or token available to authenticate.";
+                }
+            }
+        }
+        $auth->{'auth_endpoint'} = $args{'auth_endpoint'};
+        $auth->{'version'}       = $args{'version'} || '3';
+        $auth->{'auth_request_body'}{'auth'}{'identity'} = { 'methods' => [] };
+        my $identity = $auth->{'auth_request_body'}{'auth'}{'identity'};
+        if ( defined $args{'password'} ) {
+            my $user = $identity->{'password'}{'user'} = {};
+            $identity->{'methods'} = ['password'];
+            $user->{'password'}    = $args{'password'};
+
+            if ( defined $args{'username'} ) {
+                my $user->{'domain'} = $args{'domain_name'}
+                  ? { 'name' => $args{'domain_name'} } $user->{'name'} = $args{'username'};
+                my $domain_id = defined $args{'domain_id'} ? $args{'domain_id'} : 'default';
+                    $user->{'domain'} = { 'id' => $domain_id };
+                }
+                elsif ( defined $args{'user_id'} ) {
+                      $user->{'id'} = $args{'user_id'};
+                }
+            }
+            else {
+                  if ( defined $args{'token_id'} ) {
+                      $identity->{'token'}{'id'} = $args{'token_id'};
+                  }
+                  elsif ( $self->{'auth'}->token() ) {
+                      $identity->{'token'}{'id'} = $self->{'auth'}->token();
+                  }
+                  $identity->{'methods'} = ['token'];
+            }
+        }
+
+        return $auth->{'auth_request_body'}, $auth;
+    }
+
 =head2 Name: set_scope()
 
-=head3 Usage: C<$self-<gt>set_scope($auth)>
+=head3 Usage: C<$self-<gt>set_scope(\%args)>
 
 =item B<Description>: Allows setting the scope and user for requests.
 
@@ -324,25 +450,144 @@ token.
 If an $auth object is supplied to this method, that will take precendence over any 
 existing token to allow user switching as well.
 
-=cut 
+=head3 Arguments:
 
-sub set_scope {
-    my $self = shift;
-    my $auth = shift;
-    if ( !$auth->{'auth_request_body'}{'auth'}{'identity'} ) {
-        if ( $self->{'auth'}->token() ) {
-            my $token = $self->{'auth'}->token();
-            $auth->{'auth_request_body'}{'auth'}{'identity'} = {
-                'methods' => ['token'],
-                'token'   => { 'id' => $token }
-            };
-        }
-        else {
-            warn "Attempt to change scope without re-authentication. This isn't possible. Scope is unchanged.";
-        }
+    { type => 'project' | 'domain' | 'system' }
+
+=item System scope: 
+
+Specifying the system type is sufficient for a system scoped token if the
+authenticating user have the necessary roles.
+
+=item Project scope:
+
+If the project name is used, the domain name or id must also be specified. In 
+many situations that domain id is 'default'. This will be "guessed" in the
+situation that a domain name or id is not provided but C<$args{'project_name'}>
+is. A project id is enough to definitively define a project for scoping. So,
+in the event that C<$args{'project_id'}> is provided and no domain is, no
+action will be taken to define the domain.
+
+=over 4
+
+=item Project name is specified.
+
+The domain id will be set to 'default' if no domain name or domain id is
+provided with project name.
+
+    {
+        'project_name' => '<project name>',
+        'domain_id' => '<domain id>',
+
+            B<OR>
+
+        'domain_name' => '<domain name>'
     }
-    $self->set_auth($auth);
-}
+
+=item Numeric project id is specified.
+
+    {
+        'project_id' => '<project id>'
+    }
+
+=back
+
+=item Domain Scope:
+
+If neither domain_id or domain_name are defined, domain id will be set to 
+'default'.
+
+    { 'domain_id' => '<domain id>' }
+
+        B<OR>
+
+    { 'domain_name' => '<domain name>' }
+    
+=cut
+
+    sub set_auth_request_scope {
+          my $self          = shift;
+          my $scope_arg_ref = shift;
+          print Dumper $scope_arg_ref;
+          my $auth_ref = shift;
+          my $auth     = defined $auth_ref ? $auth_ref : {};
+          my %args     = %{$scope_arg_ref};
+
+          # Take a ref.
+          my $scope_ref = $auth->{'auth_request_body'}{'auth'}{'scope'} = {};
+          if ( !defined $args{'type'} ) {
+              die "Scope type must be defined.\n";
+          }
+          if ( $args{'type'} eq 'system' ) {
+              $scope_ref->{'system'}{'all'} = JSON::true;
+          }
+          elsif ( $args{'type'} eq 'domain' ) {
+
+              # Take a ref.
+              my $s_domain = $scope_ref->{'domain'} = {};
+              $s_domain = _set_domain_scope( $s_domain, \%args );
+          }
+          elsif ( $args{'type'} eq 'project' ) {
+              $scope_ref = _set_project_scope( $scope_ref, \%args );
+          }
+          else {
+              die "Unknown scope type: $args{'type'}.\n";
+          }
+          return $scope_ref, $auth;
+    }
+
+=head2 Internal helper functions for set_auth_request_scope.
+
+=head3 Name _set_domain_scope.
+
+This shouldn't be directly accessed. 
+
+=cut
+
+    sub _set_domain_scope {
+          my $s_domain = shift;
+          my %args     = shift;
+          if ( !defined $args{'domain_name'} && !defined $args{'domain_id'} ) {
+              $s_domain->{'id'} = 'default';
+          }
+          $s_domain->{'name'} = $args{'domain_name'} if defined $args{'domain_name'};
+          $s_domain->{'id'}   = $args{'domain_id'}   if defined $args{'domain_id'};
+          return $s_domain;
+    }
+
+=head3 Name: _set_project_scope
+
+This shouldn't be directly accessed. 
+
+=cut
+
+    sub _set_project_scope {
+          my $scope_ref = shift;
+          my $arg_ref   = shift;
+          my %args      = %{$arg_ref};
+          if ( !defined $args{'project_name'} && !defined $args{'project_id'} ) {
+              die "project_name or project_id must be defined for project scope type.\n";
+          }
+          if ( $args{'project_name'} ) {
+
+              # Take a ref.
+              my $p_domain = $scope_ref->{'project'}{'domain'} = {};
+              $scope_ref->{'project'}{'name'} = $args{'project_name'};
+              if ( $args{'domain_name'} ) {
+                  $p_domain->{'name'} = $args{'domain_name'};
+              }
+              elsif ( $args{'domain_id'} ) {
+                  $p_domain->{'id'} = $args{'domain_id'};
+              }
+              else {
+                  $p_domain->{'id'} = 'default';
+            }
+          }
+          elsif ( $args{'project_id'} ) {
+              $scope_ref->{'project'}{'id'} = $args{'project_id'};
+          }
+          return $scope_ref;
+    }
 
 =head1 B<REQUEST OVERRIDES>
 
@@ -358,7 +603,7 @@ See example/Utils_example/subclass_libs/Intercept.pm and the corresponding get_s
 
 =cut
 
-sub request_override { return $_[1]; }
+    sub request_override { return $_[1]; }
 
 =head1 RESPONSE HANDLER.
 
@@ -376,7 +621,7 @@ See example/Utils_example/subclass_libs/Intercept.pm and the corresponding get_s
 
 =cut
 
-sub handle_response { return $_[1]; }
+    sub handle_response { return $_[1]; }
 
 =head1 AUTHENTICATION OVERRIDES
 
@@ -392,6 +637,6 @@ See example/Utils_example/subclass_libs/Intercept.pm and the corresponding get_s
 
 =cut
 
-sub auth_overrides { return $_[1]; }
+    sub auth_overrides { shift; return @_; }
 
-1;
+    1;

@@ -16,11 +16,11 @@ use OpenStack::Client ();
 sub new ($$%) {
     my ( $class, $endpoint, %args ) = @_;
     my %request;
-
-    if ( !$args{'request'} ) {
-        die 'No OpenStack tenant name provided in "tenant"' unless defined $args{'tenant'};
-        die 'No OpenStack username provided in "username"'  unless defined $args{'username'};
-        die 'No OpenStack password provided in "password"'  unless defined $args{'password'};
+    unless ( $args{'request'} || $args{'token'} ) {
+        unless ( defined $args{'username'} || defined $args{'user_id'} ) {
+            die 'No OpenStack username or user_id provided in "username" or "user_id".\n';
+        }
+        die 'No OpenStack password provided.\n' unless defined $args{'password'};
         $args{'domain'} ||= 'default';
     }
 
@@ -31,26 +31,47 @@ sub new ($$%) {
         'package_response' => $args{'package_response'}
     );
 
-    unless ( $args{'request'} ) {
+    if ( $args{'password'} ) {
         %request = (
             'auth' => {
                 'identity' => {
                     'methods'  => [qw(password)],
                     'password' => {
                         'user' => {
-                            'name'     => $args{'username'},
                             'password' => $args{'password'},
-                            'domain'   => { 'name' => $args{'domain'} }
                         }
                     }
                 }
             }
         );
+
+        if ( $args{'username'} ) {
+            # Take a ref.
+            my $user_ref = $request{'auth'}->{'identity'}{'password'}{'user'};
+            $user_ref->{'name'} = $args{'username'}; 
+            # $domain{'name'} is 'Default' in the most general case. $domain{'id}, is 'default'.
+            # In the case that someone had modiifed $ddomain{'name'}, it's 
+            $user_ref->{'domain'} = { 'id' => $args{'domain'} };
+        }
+        elsif ( $args{'user_id'} ) {
+            $request{'auth'}->{'identity'}{'password'}{'user'} = { 'id' => $args{'user_id'} };
+        }
+    }
+    elsif ( $args{'token'} ) {
+        %request = (
+            'auth' => {
+                'identity' => {
+                    'methods' => [qw(token)],
+                    'token'   => { 'id' => $args{'token'} },
+                },
+            }
+        );
+    }
+    elsif ( $args{'request'} ) {
+        %request = %{ $args{'request'} } if $args{'request'};
     }
 
-    %request = %{$args{'request'}} if $args{'request'};
     $request{'auth'}->{'scope'} = $args{'scope'} if defined $args{'scope'};
-
     my $response = $client->request(
         'method' => 'POST',
         'path'   => '/auth/tokens',
@@ -67,7 +88,7 @@ sub new ($$%) {
         die 'No token found in response body';
     }
 
-    unless (defined $body->{'token'}->{'catalog'} || $args{'request'} ) { # You probably already know this if you're using an auth object.
+    unless ( defined $body->{'token'}->{'catalog'} || $args{'request'} ) {    # You probably already know this if you're using an auth object.
         warn "No catalog found in the token object. You probably have an unscoped token.\n You won't be able to access other service endpoints.\n";
     }
 

@@ -55,9 +55,16 @@ values are required:
 
 The OpenStack tenant (project) name
 
+Not required in V3.
+
 =item * B<username>
 
-The OpenStack user name
+The OpenStack user name.
+
+=item * B<userid> (V3 client only)
+
+The userid is handled as a more specific identifier by OpenStack so a domain 
+does not need to be specified with it.
 
 =item * B<password>
 
@@ -78,6 +85,11 @@ submitted to the endpoint.
 
 When negotiating with an Identity v3 endpoint, the name of the domain to
 authenticate to.
+
+=item * B<token> (V3 client only)
+
+Useful for reauthenticating with a new scope. Can be obtained with the
+C<token()> method once authenticated.
 
 =back
 
