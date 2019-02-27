@@ -12,22 +12,10 @@ use Data::Dumper;
 
 use lib qq{$FindBin::Bin/../todolib/};
 
-use base qq{OpenStack::Client::Utils};
 
-my %caller;
+use qq{OpenStack::Client::Utils};
 
-(
-    $caller{'has'}{'pkg'},
-    undef, undef,
-    $caller{'has'}{'sub'},
-    $caller{'has'}{'args'},
-    $caller{'wantarray'}, undef,
-    $caller{'$is_require'}
-) = caller;
-
-__PACKAGE__->run( @ARGV, %caller ) if $caller{'has'}{'pkg'};
-
-
+__PACKAGE__->run(@ARGV) unless caller;
 
 =pod
 
@@ -67,21 +55,12 @@ The main logic of the script.
 
 =cut
 
-sub new {
-    my $class = shift;
-    my $self = {};
-
-    
-
-}
+# request: path, service, method, body (not get methods), optional labels
 
 sub run {
+    my $args = @_;
 
-    my @args = @_;
-
-    ### Get options if !caller.
-
-    my $compute_get = {
+    my $server_list_request = {
         'label'   => 'servers.list.brief',
         'service' => 'compute',
         'method'  => 'GET',
@@ -89,19 +68,18 @@ sub run {
     };
 
     my %proj_scope_args = (
+        'project_name' => '',
         'type'         => 'project'
     );
 
     my $project_name = 'dan.stewart@cpanel.net';
 
+    $proj_scope_args{'project_name'} = $project_name;
 
-
-    $proj_scope_args{'project'}{'name'} = $project_name;
-
-    my $password     = prompt_for_input("Password for initial API authentication: ");
-    my %initial_auth = auth_boilerplate(
-        'scope'    => \%proj_scope_args,
-        'password' => $password
+    my $password   = prompt_for_input("Password for initial API authentication: ");
+    my %initial_auth = auth_boilerplate( 
+        'scope' => \%proj_scope_args, 
+        'password' => $password 
     );
 
     my %system_scope_token_auth = auth_boilerplate(
@@ -113,7 +91,7 @@ sub run {
     # my $project_name = prompt_for_input("Input project name for project scoped requests: ", 1);
     ## Initial request.
     my $os_util     = OpenStack::Client::Utils->new(%initial_auth);
-    my $sl_response = $os_util->request($compute_get);
+    my $sl_response = $os_util->request($req);
 
     ### Scope for next call.
 
@@ -122,9 +100,8 @@ sub run {
     ### Follow the individual server detail paths to get at the hypervisor information.
     my $response_collection = [];
     foreach my $server ( @{ $sl_response->{'servers'} } ) {
-
         # Add server details to  collection.
-        my %sd_request = %{$compute_get};
+        my %sd_request = %{$req};
         $sd_request{'path'}  = "/servers/" . $server->{'id'};
         $sd_request{'label'} = "server.details";
 
@@ -134,14 +111,14 @@ sub run {
     my $hv_hr;
     foreach my $sd_response (@$response_collection) {
         my $hypervisor = $sd_response->{'server'}->{'OS-EXT-SRV-ATTR:hypervisor_hostname'};
-        $hv_hr->{$hypervisor} = [];
-        push @{ $hv_hr->{$hypervisor} }, { 'name' => $sd_response->{'server'}{'name'} };
+        $hv_hr->{$hypervisor} = [ ];
+        push @{$hv_hr->{$hypervisor}}, { 'name' => $sd_response->{'server'}{'name'} };
     }
-    my $json = JSON->new();
+    my $json             = JSON->new( );
     my @arr;
     foreach my $hv_key ( keys %$hv_hr ) {
         print Dumper $hv_hr->{$hv_key};
-        push @arr, ( { $hv_key => $hv_hr->{$hv_key} } );
+        push @arr, ({ $hv_key => $hv_hr->{$hv_key} });
     }
     my $hv_json = encode_json \@arr;
     print $hv_json;
@@ -152,11 +129,11 @@ sub auth_boilerplate {
     my %fwd_args;
     if ( exists $args{'password'} && defined $args{'password'} ) {
         $fwd_args{'password'} = $args{'password'};
-        if ( exists $args{'user'}{'name'} && defined $args{'user'}{'name'} ) {
-            $fwd_args{'user'}{'name'} = $args{'user'}{'name'};
+        if ( exists $args{'username'} && defined $args{'username'} ) {
+            $fwd_args{'username'} = $args{'username'};
         }
-        elsif ( exists $args{'user'}{'id'} && defined $args{'user'}{'id'} ) {
-            $fwd_args{'user'}{'id'} = $args{'user_id'};
+        elsif ( exists $args{'user_id'} && defined $args{'user_id'}) {
+            $fwd_args{'user_id'} = $args{'user_id'};
         }
         else {
             $fwd_args{'username'} = 'admin';
@@ -173,11 +150,11 @@ sub auth_boilerplate {
         'auth_version'  => '3',
         %fwd_args
     );
-}
+} 
 
 sub prompt_for_input {
     my $prompt_phrase = shift;
-    my $echo          = shift;
+    my $echo = shift;
     Term::ReadKey::ReadMode 'noecho' if !$echo;
     print $prompt_phrase;
     my $input = Term::ReadKey::ReadLine(0);
